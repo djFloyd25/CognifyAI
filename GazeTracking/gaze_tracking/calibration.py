@@ -1,5 +1,7 @@
 from __future__ import division
+
 import cv2
+
 from .pupil import Pupil
 
 
@@ -10,13 +12,16 @@ class Calibration(object):
     """
 
     def __init__(self):
-        self.nb_frames = 20
+        self.nb_frames = 60
         self.thresholds_left = []
         self.thresholds_right = []
 
     def is_complete(self):
         """Returns true if the calibration is completed"""
-        return len(self.thresholds_left) >= self.nb_frames and len(self.thresholds_right) >= self.nb_frames
+        return (
+            len(self.thresholds_left) >= self.nb_frames
+            and len(self.thresholds_right) >= self.nb_frames
+        )
 
     def threshold(self, side):
         """Returns the threshold value for the given eye.
@@ -58,7 +63,9 @@ class Calibration(object):
             iris_frame = Pupil.image_processing(eye_frame, threshold)
             trials[threshold] = Calibration.iris_size(iris_frame)
 
-        best_threshold, iris_size = min(trials.items(), key=(lambda p: abs(p[1] - average_iris_size)))
+        best_threshold, iris_size = min(
+            trials.items(), key=(lambda p: abs(p[1] - average_iris_size))
+        )
         return best_threshold
 
     def evaluate(self, eye_frame, side):
