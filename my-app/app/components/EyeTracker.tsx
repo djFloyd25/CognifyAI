@@ -20,7 +20,19 @@ const EyeTracker: React.FC = () => {
   // Detect front vs back camera
   const [isFrontCamera, setIsFrontCamera] = useState(true);
 
-  // --- Start webcam with back camera if available ---
+  // --- Stop webcam helper ---
+  const stopWebcam = () => {
+    const stream = videoRef.current?.srcObject as MediaStream | undefined;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      console.log("🛑 Camera stopped");
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  // --- Start webcam ---
   useEffect(() => {
     const startWebcam = async () => {
       if (!videoRef.current) return;
@@ -55,10 +67,8 @@ const EyeTracker: React.FC = () => {
 
     startWebcam();
 
-    return () => {
-      const stream = videoRef.current?.srcObject as MediaStream | undefined;
-      stream?.getTracks().forEach((track) => track.stop());
-    };
+    // Cleanup on unmount
+    return () => stopWebcam();
   }, []);
 
   // --- Connect to WebSocket backend ---
@@ -91,7 +101,7 @@ const EyeTracker: React.FC = () => {
     };
 
     return () => ws.close();
-  }, []);
+  }, [testStarted]);
 
   // --- Calculate smoothness & jerkiness ---
   useEffect(() => {
@@ -188,9 +198,12 @@ const EyeTracker: React.FC = () => {
     setJerkiness(null);
   };
 
-  // Navigate when timer ends
+  // --- Navigate when timer ends ---
   useEffect(() => {
-    if (timeLeft === 0 && testStarted) router.push("/walk-and-turn");
+    if (timeLeft === 0 && testStarted) {
+      stopWebcam(); // release camera before navigating
+      router.push("/walk-and-turn");
+    }
   }, [timeLeft, testStarted, router]);
 
   return (
