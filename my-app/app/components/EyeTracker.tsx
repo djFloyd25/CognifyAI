@@ -1,35 +1,49 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const EyeTracker: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const router = useRouter();
 
   const [isTracking, setIsTracking] = useState(false);
   const [eyeData, setEyeData] = useState<any>(null);
-
-  // Timer + test control
   const [testStarted, setTestStarted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(10);
-
-  // History + metrics
   const [history, setHistory] = useState<{ x: number; t: number }[]>([]);
   const [smoothness, setSmoothness] = useState<number | null>(null);
   const [jerkiness, setJerkiness] = useState<number | null>(null);
 
-  // --- Start webcam ---
+  // Detect front vs back camera
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
+
+  // --- Start webcam with back camera if available ---
   useEffect(() => {
     const startWebcam = async () => {
       if (!videoRef.current) return;
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480 },
-        });
-        console.log("✅ Camera stream acquired");
+        let stream: MediaStream;
+        try {
+          // Try back camera first
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480, facingMode: { exact: "environment" } },
+          });
+          setIsFrontCamera(false); // Using back camera
+        } catch (err) {
+          // Fallback to front camera
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480, facingMode: "user" },
+          });
+          setIsFrontCamera(true); // Using front camera
+        }
+
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        console.log(`✅ Camera started (${isFrontCamera ? "front" : "back"})`);
       } catch (err: any) {
         console.error("❌ Camera error:", err.name, err.message);
       }
@@ -65,23 +79,17 @@ const EyeTracker: React.FC = () => {
         status: data.status,
       });
 
-      // Only record iris positions if test is running
       if (testStarted && data.leftIris && data.leftIris.length > 0) {
-        const now = Date.now() / 1000; // seconds
-        const x = data.leftIris[0][0]; // normalized X
-        setHistory((prev) => {
-          const updated = [...prev, { x, t: now }];
-          return updated.slice(-50); // keep last 50 frames
-        });
+        const now = Date.now() / 1000;
+        const x = data.leftIris[0][0];
+        setHistory((prev) => [...prev, { x, t: now }].slice(-50));
       }
     };
 
-    return () => {
-      ws.close();
-    };
-  }, [testStarted]);
+    return () => ws.close();
+  }, []);
 
-  // --- Calculate smoothness & jerkiness from history ---
+  // --- Calculate smoothness & jerkiness ---
   useEffect(() => {
     if (history.length < 3) return;
 
@@ -95,13 +103,9 @@ const EyeTracker: React.FC = () => {
     if (velocities.length > 2) {
       const mean = velocities.reduce((a, b) => a + b, 0) / velocities.length;
       const variance =
-        velocities.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
-        velocities.length;
+        velocities.reduce((sum, v) => sum + (v - mean) ** 2, 0) / velocities.length;
       const stdDev = Math.sqrt(variance);
-
-      const spikes = velocities.map((v, i, arr) =>
-        i > 0 ? Math.abs(v - arr[i - 1]) : 0
-      );
+      const spikes = velocities.map((v, i, arr) => (i > 0 ? Math.abs(v - arr[i - 1]) : 0));
       const maxSpike = Math.max(...spikes);
 
       setSmoothness(stdDev);
@@ -109,26 +113,21 @@ const EyeTracker: React.FC = () => {
     }
   }, [history]);
 
-  // --- Countdown timer logic ---
+  // --- Countdown timer ---
   useEffect(() => {
     if (!testStarted) return;
-
     if (timeLeft <= 0) {
-      setTestStarted(false); // stop test automatically
+      setTestStarted(false);
       return;
     }
 
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
-    }, 1000);
-
+    const timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
     return () => clearInterval(timer);
   }, [testStarted, timeLeft]);
 
-  // --- Drawing loop (mirrored video + iris points) ---
+  // --- Drawing loop ---
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current) return;
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -136,12 +135,12 @@ const EyeTracker: React.FC = () => {
     const render = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw mirrored video feed
       ctx.save();
-      ctx.scale(-1, 1);
+      // Mirror only if front camera
+      if (isFrontCamera) ctx.scale(-1, 1);
       ctx.drawImage(
         videoRef.current!,
-        -canvas.width,
+        isFrontCamera ? -canvas.width : 0,
         0,
         canvas.width,
         canvas.height
@@ -169,13 +168,10 @@ const EyeTracker: React.FC = () => {
     render();
 
     return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [eyeData]);
+  }, [eyeData, isFrontCamera]);
 
-  // --- Start test button handler ---
   const startTest = () => {
     setTestStarted(true);
     setTimeLeft(10);
@@ -184,10 +180,14 @@ const EyeTracker: React.FC = () => {
     setJerkiness(null);
   };
 
+  // Navigate when timer ends
+  useEffect(() => {
+    if (timeLeft === 0 && testStarted) router.push("/walk-and-turn");
+  }, [timeLeft, testStarted, router]);
+
   return (
     <div className="flex flex-col items-center py-12">
       <div className="relative w-full max-w-md">
-        {/* Status badge */}
         <div
           className={`absolute top-4 left-4 px-3 py-1 rounded-full ${
             isTracking ? "bg-green-500" : "bg-red-500"
@@ -196,7 +196,6 @@ const EyeTracker: React.FC = () => {
           {isTracking ? "Tracking" : "Not Connected"}
         </div>
 
-        {/* Hidden video element */}
         <video
           ref={videoRef}
           width={640}
@@ -207,7 +206,6 @@ const EyeTracker: React.FC = () => {
           className="hidden"
         />
 
-        {/* Canvas */}
         <canvas
           ref={canvasRef}
           width={640}
@@ -215,7 +213,6 @@ const EyeTracker: React.FC = () => {
           className="rounded-lg border-4 border-indigo-600 shadow-lg w-full"
         />
 
-        {/* Timer */}
         <div className="text-center mt-4 text-white">
           {testStarted ? (
             <p className="text-xl">Time Left: {timeLeft}s</p>
@@ -229,7 +226,6 @@ const EyeTracker: React.FC = () => {
           )}
         </div>
 
-        {/* Results */}
         <div className="mt-4 text-center text-white">
           {smoothness !== null && <p>Smoothness: {smoothness.toFixed(4)}</p>}
           {jerkiness !== null && <p>Jerkiness: {jerkiness.toFixed(4)}</p>}
