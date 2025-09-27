@@ -8,7 +8,7 @@ import uvicorn
 import numpy as np
 import asyncio
 from collections import deque
-from typing import Deque, List, Tuple
+import time
 import math
 
 app = FastAPI()
@@ -30,40 +30,62 @@ face_mesh = mp.solutions.face_mesh.FaceMesh(
     min_tracking_confidence=0.5
 )
 
-# Store previous positions for jerkiness calculation
-left_iris_history: Deque[List[Tuple[float, float]]] = deque(maxlen=10)  # Store last 10 frames
-right_iris_history: Deque[List[Tuple[float, float]]] = deque(maxlen=10)
+# Parameters from jerk.py
+WINDOW_SIZE = 100  # number of frames to keep in history
+JERKINESS_THRESHOLD = 20  # threshold for failing
+FAIL_FRAMES_REQUIRED = 15  # how many frames above threshold before "FAIL"
 
-def calculate_jerkiness(history: Deque[List[Tuple[float, float]]]) -> float:
-    if len(history) < 3:
-        return 0.0
-        
-    # Calculate the average movement speed between consecutive frames
-    speeds = []
-    for i in range(len(history) - 1):
-        current_center = np.mean(history[i], axis=0)
-        next_center = np.mean(history[i + 1], axis=0)
-        
-        # Calculate Euclidean distance
-        speed = math.sqrt((next_center[0] - current_center[0])**2 + 
-                         (next_center[1] - current_center[1])**2)
-        speeds.append(speed)
+# Store tracking data
+class EyeTracker:
+    def __init__(self):
+        self.eye_positions = []
+        self.timestamps = []
+        self.fail_counter = 0
+        self.status = "Analyzing..."
+        self.last_jerkiness = 0
+        self.start_time = time.time()
     
-    # Calculate the change in speed (acceleration)
-    accelerations = []
-    for i in range(len(speeds) - 1):
-        acceleration = abs(speeds[i + 1] - speeds[i])
-        accelerations.append(acceleration)
+    def calculate_dot_position(self, frame_w, frame_h):
+        t = time.time() - self.start_time
+        dot_x = int((np.sin(t) * 0.4 + 0.5) * frame_w)
+        dot_y = frame_h // 2
+        return dot_x, dot_y
     
-    # High acceleration indicates jerky movement
-    # Return average acceleration normalized to a 0-1 scale
-    # Values above 0.5 indicate significant jerkiness
-    jerkiness = np.mean(accelerations) * 100 if accelerations else 0
-    return min(1.0, jerkiness)
+    def update(self, x, timestamp):
+        self.eye_positions.append(x)
+        self.timestamps.append(timestamp)
+        
+        if len(self.eye_positions) > WINDOW_SIZE:
+            self.eye_positions.pop(0)
+            self.timestamps.pop(0)
+        
+        if len(self.eye_positions) > 5:
+            velocities = np.diff(self.eye_positions) / np.diff(self.timestamps)
+            jerkiness = np.std(velocities)
+            self.last_jerkiness = jerkiness
+            
+            if jerkiness > JERKINESS_THRESHOLD:
+                self.fail_counter += 1
+            else:
+                self.fail_counter = max(0, self.fail_counter - 1)
+            
+            if self.fail_counter > FAIL_FRAMES_REQUIRED:
+                self.status = "FAIL"
+            else:
+                self.status = "PASS"
+        
+        return self.last_jerkiness, self.status
+
+# Create global tracker instance
+tracker = EyeTracker()
 
 def process_frame(frame):
     # Mirror the frame horizontally
     frame = cv2.flip(frame, 1)
+    frame_h, frame_w, _ = frame.shape
+    
+    # Get target dot position
+    dot_x, dot_y = tracker.calculate_dot_position(frame_w, frame_h)
     
     # Convert the frame to RGB
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -74,31 +96,29 @@ def process_frame(frame):
     if results.multi_face_landmarks:
         landmarks = results.multi_face_landmarks[0].landmark
         
-        # Get iris landmarks
-        left_iris = [(lm.x, lm.y) for lm in landmarks[468:473]]
-        right_iris = [(lm.x, lm.y) for lm in landmarks[473:478]]
+        # Get iris center (using landmark 468 - left iris center)
+        left_iris = landmarks[468]
+        iris_x = int(left_iris.x * frame_w)
+        iris_y = int(left_iris.y * frame_h)
         
-        # Update history
-        left_iris_history.append(left_iris)
-        right_iris_history.append(right_iris)
+        # Update tracker with new position
+        current_time = time.time()
+        jerkiness, status = tracker.update(iris_x, current_time)
         
-        # Calculate jerkiness scores
-        left_jerkiness = calculate_jerkiness(left_iris_history)
-        right_jerkiness = calculate_jerkiness(right_iris_history)
-        
-        # Calculate average jerkiness
-        avg_jerkiness = (left_jerkiness + right_jerkiness) / 2
-        
-        # Define jerkiness threshold for impairment warning
-        jerkiness_threshold = 0.5
+        # Get all iris landmarks for visualization
+        left_iris_points = [(lm.x, lm.y) for lm in landmarks[468:473]]
+        right_iris_points = [(lm.x, lm.y) for lm in landmarks[473:478]]
         
         return {
-            "leftIris": left_iris,
-            "rightIris": right_iris,
-            "leftJerkiness": left_jerkiness,
-            "rightJerkiness": right_jerkiness,
-            "averageJerkiness": avg_jerkiness,
-            "impairmentWarning": avg_jerkiness > jerkiness_threshold
+            "leftIris": left_iris_points,
+            "rightIris": right_iris_points,
+            "targetDot": {
+                "x": dot_x / frame_w,  # Normalize to 0-1 range
+                "y": dot_y / frame_h
+            },
+            "jerkiness": jerkiness,
+            "status": status,
+            "isFailing": status == "FAIL"
         }
     
     return None

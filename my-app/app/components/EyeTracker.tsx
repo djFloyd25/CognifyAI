@@ -11,10 +11,13 @@ const EyeTracker: React.FC = () => {
   const [eyeData, setEyeData] = useState<{
     leftIris: [number, number][];
     rightIris: [number, number][];
-    leftJerkiness: number;
-    rightJerkiness: number;
-    averageJerkiness: number;
-    impairmentWarning: boolean;
+    targetDot: {
+      x: number;
+      y: number;
+    };
+    jerkiness: number;
+    status: string;
+    isFailing: boolean;
   } | null>(null);
 
   // Initialize webcam
@@ -95,6 +98,14 @@ const EyeTracker: React.FC = () => {
         drawIrisPoints(eyeData.leftIris, "red");
         drawIrisPoints(eyeData.rightIris, "green");
 
+        // Draw target dot
+        const dotX = eyeData.targetDot.x * canvas.width;
+        const dotY = eyeData.targetDot.y * canvas.height;
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 10, 0, 2 * Math.PI);
+        ctx.fill();
+
         // Draw jerkiness meter
         const barWidth = 200;
         const barHeight = 20;
@@ -106,20 +117,19 @@ const EyeTracker: React.FC = () => {
         ctx.fillRect(x, y, barWidth, barHeight);
 
         // Jerkiness level
-        const jerkinessWidth = barWidth * eyeData.averageJerkiness;
-        ctx.fillStyle = eyeData.impairmentWarning ? "red" : "green";
+        const jerkinessWidth = barWidth * (eyeData.jerkiness / 50); // Normalize to display range
+        ctx.fillStyle = eyeData.isFailing ? "red" : "green";
         ctx.fillRect(x, y, jerkinessWidth, barHeight);
 
         // Text
         ctx.fillStyle = "white";
         ctx.font = "16px Arial";
-        ctx.fillText(`Jerkiness: ${Math.round(eyeData.averageJerkiness * 100)}%`, x, y - 5);
+        ctx.fillText(`Jerkiness: ${Math.round(eyeData.jerkiness)}`, x, y - 5);
 
-        if (eyeData.impairmentWarning) {
-          ctx.fillStyle = "red";
-          ctx.font = "bold 20px Arial";
-          ctx.fillText("⚠️ High Eye Movement Instability Detected", x, 30);
-        }
+        // Status text
+        ctx.fillStyle = eyeData.isFailing ? "red" : "green";
+        ctx.font = "bold 24px Arial";
+        ctx.fillText(`${eyeData.status}`, x, 40);
       }
 
       // Continue animation
