@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 const Hero: React.FC = () => {
   return (
@@ -10,10 +11,14 @@ const Hero: React.FC = () => {
       <p className="text-lg md:text-xl text-gray-300 max-w-xl mb-8">
         Test your cognitive abilities in a fun and interactive way. See how alert and focused you really are!
       </p>
-      <Button size="lg" className="bg-indigo-600 hover:bg-indigo-700">
-        Start the Test
-      </Button>
+      <Link href="/test">
+        <Button size="lg" className="bg-indigo-600 hover:bg-indigo-700">
+          Start Test
+        </Button>
+      </Link>
     </section>
+      
+      
   );
 };
 
