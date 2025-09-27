@@ -8,9 +8,13 @@ const EyeTracker: React.FC = () => {
   const animationFrameRef = useRef<number | undefined>(undefined);
   const [websocket, setWebsocket] = useState<WebSocket | null>(null);
   const [isTracking, setIsTracking] = useState(false);
-  const [eyePositions, setEyePositions] = useState<{
+  const [eyeData, setEyeData] = useState<{
     leftIris: [number, number][];
     rightIris: [number, number][];
+    leftJerkiness: number;
+    rightJerkiness: number;
+    averageJerkiness: number;
+    impairmentWarning: boolean;
   } | null>(null);
 
   // Initialize webcam
@@ -53,7 +57,7 @@ const EyeTracker: React.FC = () => {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      setEyePositions(data);
+      setEyeData(data);
     };
 
     setWebsocket(ws);
@@ -78,7 +82,7 @@ const EyeTracker: React.FC = () => {
       ctx.drawImage(videoRef.current!, 0, 0, canvas.width, canvas.height);
 
       // Draw iris points if available
-      if (eyePositions) {
+      if (eyeData) {
         const drawIrisPoints = (points: [number, number][], color: string) => {
           ctx.fillStyle = color;
           points.forEach(([x, y]) => {
@@ -88,8 +92,34 @@ const EyeTracker: React.FC = () => {
           });
         };
 
-        drawIrisPoints(eyePositions.leftIris, "red");
-        drawIrisPoints(eyePositions.rightIris, "green");
+        drawIrisPoints(eyeData.leftIris, "red");
+        drawIrisPoints(eyeData.rightIris, "green");
+
+        // Draw jerkiness meter
+        const barWidth = 200;
+        const barHeight = 20;
+        const x = 20;
+        const y = canvas.height - 40;
+
+        // Background bar
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        // Jerkiness level
+        const jerkinessWidth = barWidth * eyeData.averageJerkiness;
+        ctx.fillStyle = eyeData.impairmentWarning ? "red" : "green";
+        ctx.fillRect(x, y, jerkinessWidth, barHeight);
+
+        // Text
+        ctx.fillStyle = "white";
+        ctx.font = "16px Arial";
+        ctx.fillText(`Jerkiness: ${Math.round(eyeData.averageJerkiness * 100)}%`, x, y - 5);
+
+        if (eyeData.impairmentWarning) {
+          ctx.fillStyle = "red";
+          ctx.font = "bold 20px Arial";
+          ctx.fillText("⚠️ High Eye Movement Instability Detected", x, 30);
+        }
       }
 
       // Continue animation
@@ -103,7 +133,7 @@ const EyeTracker: React.FC = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [eyePositions]);
+  }, [eyeData]);
 
   return (
     <div className="flex justify-center items-center py-12">
