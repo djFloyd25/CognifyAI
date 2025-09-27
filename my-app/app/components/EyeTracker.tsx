@@ -3,157 +3,138 @@
 import React, { useEffect, useRef, useState } from "react";
 
 const EyeTracker: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const animationFrameRef = useRef<number | undefined>(undefined);
-  const [websocket, setWebsocket] = useState<WebSocket | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
   const [isTracking, setIsTracking] = useState(false);
   const [eyeData, setEyeData] = useState<{
     leftIris: [number, number][];
     rightIris: [number, number][];
-    targetDot: {
-      x: number;
-      y: number;
-    };
-    jerkiness: number;
-    status: string;
-    isFailing: boolean;
+    status?: string;
   } | null>(null);
 
-  // Initialize webcam
+  // --- Start webcam ---
   useEffect(() => {
-    if (!videoRef.current) return;
-
     const startWebcam = async () => {
+      if (!videoRef.current) return;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480 } 
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
         });
-        videoRef.current!.srcObject = stream;
-        await videoRef.current!.play();
-      } catch (err) {
-        console.error("Error accessing webcam:", err);
+        console.log("✅ Camera stream acquired");
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      } catch (err: any) {
+        console.error("❌ Camera error:", err.name, err.message);
       }
     };
 
     startWebcam();
 
     return () => {
-      const stream = videoRef.current?.srcObject as MediaStream;
-      stream?.getTracks().forEach(track => track.stop());
+      const stream = videoRef.current?.srcObject as MediaStream | undefined;
+      stream?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
-  // Connect to WebSocket server
+  // --- Connect to WebSocket backend ---
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000/ws");
+    const ws = new WebSocket("ws://localhost:8000/ws/eye");
 
     ws.onopen = () => {
-      console.log("Connected to WebSocket server");
+      console.log("✅ Connected to WebSocket server");
       setIsTracking(true);
     };
 
     ws.onclose = () => {
-      console.log("Disconnected from WebSocket server");
+      console.log("🛑 Disconnected from WebSocket server");
       setIsTracking(false);
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      setEyeData(data);
+      setEyeData({
+        leftIris: data.leftIris,
+        rightIris: data.rightIris,
+        status: data.status,
+      });
     };
-
-    setWebsocket(ws);
 
     return () => {
       ws.close();
     };
   }, []);
 
-  // Draw video and tracking points
+  // --- Drawing loop (mirrored video + raw iris) ---
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current) return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
     const render = () => {
-      // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw video feed
-      ctx.drawImage(videoRef.current!, 0, 0, canvas.width, canvas.height);
+      // Draw mirrored video feed
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(
+        videoRef.current!,
+        -canvas.width,
+        0,
+        canvas.width,
+        canvas.height
+      );
+      ctx.restore();
 
-      // Draw iris points if available
+      // Draw iris points (UNMIRRORED → raw coordinates from backend)
       if (eyeData) {
         const drawIrisPoints = (points: [number, number][], color: string) => {
           ctx.fillStyle = color;
           points.forEach(([x, y]) => {
             ctx.beginPath();
-            ctx.arc(x * canvas.width, y * canvas.height, 2, 0, 2 * Math.PI);
+            ctx.arc(
+              x * canvas.width, // raw X (no mirror)
+              y * canvas.height,
+              2,
+              0,
+              2 * Math.PI
+            );
             ctx.fill();
           });
         };
 
         drawIrisPoints(eyeData.leftIris, "red");
         drawIrisPoints(eyeData.rightIris, "green");
-
-        // Draw target dot
-        const dotX = eyeData.targetDot.x * canvas.width;
-        const dotY = eyeData.targetDot.y * canvas.height;
-        ctx.fillStyle = "red";
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 10, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // Draw jerkiness meter
-        const barWidth = 200;
-        const barHeight = 20;
-        const x = 20;
-        const y = canvas.height - 40;
-
-        // Background bar
-        ctx.fillStyle = "rgba(0,0,0,0.5)";
-        ctx.fillRect(x, y, barWidth, barHeight);
-
-        // Jerkiness level
-        const jerkinessWidth = barWidth * (eyeData.jerkiness / 50); // Normalize to display range
-        ctx.fillStyle = eyeData.isFailing ? "red" : "green";
-        ctx.fillRect(x, y, jerkinessWidth, barHeight);
-
-        // Text
-        ctx.fillStyle = "white";
-        ctx.font = "16px Arial";
-        ctx.fillText(`Jerkiness: ${Math.round(eyeData.jerkiness)}`, x, y - 5);
-
-        // Status text
-        ctx.fillStyle = eyeData.isFailing ? "red" : "green";
-        ctx.font = "bold 24px Arial";
-        ctx.fillText(`${eyeData.status}`, x, 40);
       }
 
-      // Continue animation
       animationFrameRef.current = requestAnimationFrame(render);
     };
 
     render();
 
     return () => {
-      if (animationFrameRef.current) {
+      if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
   }, [eyeData]);
 
   return (
-    <div className="flex justify-center items-center py-12">
+    <div className="flex flex-col items-center py-12">
       <div className="relative w-full max-w-md">
-        <div className={`absolute top-4 left-4 px-3 py-1 rounded-full ${
-          isTracking ? "bg-green-500" : "bg-red-500"
-        }`}>
+        {/* Tracking status badge */}
+        <div
+          className={`absolute top-4 left-4 px-3 py-1 rounded-full ${
+            isTracking ? "bg-green-500" : "bg-red-500"
+          }`}
+        >
           {isTracking ? "Tracking" : "Not Connected"}
         </div>
-        {/* Hidden video element for webcam capture */}
+
+        {/* Hidden video feed */}
         <video
           ref={videoRef}
           width={640}
@@ -163,13 +144,21 @@ const EyeTracker: React.FC = () => {
           muted
           className="hidden"
         />
-        {/* Canvas for drawing video and tracking points */}
+
+        {/* Canvas for mirrored video + iris overlays */}
         <canvas
           ref={canvasRef}
           width={640}
           height={480}
           className="rounded-lg border-4 border-indigo-600 shadow-lg w-full"
         />
+
+        {/* Debug JSON display */}
+        {eyeData && (
+          <pre className="mt-4 text-xs bg-gray-800 text-white p-2 rounded">
+            {JSON.stringify(eyeData, null, 2)}
+          </pre>
+        )}
       </div>
     </div>
   );
