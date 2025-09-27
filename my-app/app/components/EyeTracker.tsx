@@ -30,7 +30,11 @@ const EyeTracker: React.FC = () => {
         try {
           // Try back camera first
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480, facingMode: { exact: "environment" } },
+            video: {
+              width: 640,
+              height: 480,
+              facingMode: { exact: "environment" },
+            },
           });
           setIsFrontCamera(false); // Using back camera
         } catch (err) {
@@ -59,7 +63,7 @@ const EyeTracker: React.FC = () => {
 
   // --- Connect to WebSocket backend ---
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000/ws/eye");
+    const ws = new WebSocket("ws://100.66.12.76:8000/ws/eye");
 
     ws.onopen = () => {
       console.log("✅ Connected to WebSocket server");
@@ -103,9 +107,12 @@ const EyeTracker: React.FC = () => {
     if (velocities.length > 2) {
       const mean = velocities.reduce((a, b) => a + b, 0) / velocities.length;
       const variance =
-        velocities.reduce((sum, v) => sum + (v - mean) ** 2, 0) / velocities.length;
+        velocities.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
+        velocities.length;
       const stdDev = Math.sqrt(variance);
-      const spikes = velocities.map((v, i, arr) => (i > 0 ? Math.abs(v - arr[i - 1]) : 0));
+      const spikes = velocities.map((v, i, arr) =>
+        i > 0 ? Math.abs(v - arr[i - 1]) : 0
+      );
       const maxSpike = Math.max(...spikes);
 
       setSmoothness(stdDev);
@@ -168,7 +175,8 @@ const EyeTracker: React.FC = () => {
     render();
 
     return () => {
-      if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+      if (animationFrameRef.current !== null)
+        cancelAnimationFrame(animationFrameRef.current);
     };
   }, [eyeData, isFrontCamera]);
 
