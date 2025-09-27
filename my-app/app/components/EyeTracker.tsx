@@ -16,6 +16,8 @@ const EyeTracker: React.FC = () => {
   const [history, setHistory] = useState<{ x: number; t: number }[]>([]);
   const [smoothness, setSmoothness] = useState<number | null>(null);
   const [jerkiness, setJerkiness] = useState<number | null>(null);
+  const [passFail, setPassFail] = useState<string | null>(null);
+
 
   // Detect front vs back camera
   const [isFrontCamera, setIsFrontCamera] = useState(true);
@@ -190,8 +192,26 @@ const EyeTracker: React.FC = () => {
 
   // Navigate when timer ends
   useEffect(() => {
-    if (timeLeft === 0 && testStarted) router.push("/walk-and-turn");
-  }, [timeLeft, testStarted, router]);
+  if (timeLeft === 0 && testStarted) {
+    // Example thresholds: adjust based on testing/experiments
+    const smoothnessThreshold = 0.02; // lower is smoother
+    const jerkinessThreshold = 0.05;  // lower is less jerky
+
+    if (
+      smoothness !== null &&
+      jerkiness !== null &&
+      smoothness < smoothnessThreshold &&
+      jerkiness < jerkinessThreshold
+    ) {
+      setPassFail("✅ Eye Test Passed");
+    } else {
+      setPassFail("❌ Eye Test Failed");
+    }
+
+    // Navigate to next test after short delay (optional)
+    setTimeout(() => router.push("/walk-and-turn"), 5000);
+  }
+}, [timeLeft, testStarted, smoothness, jerkiness, router]);
 
   return (
     <div className="flex flex-col items-center py-12">
@@ -237,7 +257,9 @@ const EyeTracker: React.FC = () => {
         <div className="mt-4 text-center text-white">
           {smoothness !== null && <p>Smoothness: {smoothness.toFixed(4)}</p>}
           {jerkiness !== null && <p>Jerkiness: {jerkiness.toFixed(4)}</p>}
+          {passFail && <h2 className="text-2xl font-bold mt-4">{passFail}</h2>}
         </div>
+
       </div>
     </div>
   );
