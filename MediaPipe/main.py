@@ -2,16 +2,15 @@ import asyncio
 
 import cv2
 import uvicorn
-from eye_test import process_frame  # make sure eye_test.py is in the same folder
+from eye_test import process_frame
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Allow frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow everything for dev (lock down in prod!)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -19,13 +18,9 @@ app.add_middleware(
 
 
 @app.websocket("/ws/eye")
-async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint that streams iris tracking data
-    with smoothness + jerkiness metrics to the frontend.
-    """
+async def websocket_eye(websocket: WebSocket):
     await websocket.accept()
-    cap = cv2.VideoCapture(0)  # capture webcam
+    cap = cv2.VideoCapture(0)
 
     try:
         while True:
@@ -33,20 +28,14 @@ async def websocket_endpoint(websocket: WebSocket):
             if not success:
                 break
 
-            result = process_frame(frame)  # call into eye_test.py
+            payload = process_frame(frame)
+            await websocket.send_json(payload)
 
-            # Send JSON result to frontend
-            await websocket.send_json(result)
-
-            await asyncio.sleep(0.033)  # ~30 FPS
-
-    except Exception as e:
-        print(f"❌ Error in WebSocket: {e}")
-
+            await asyncio.sleep(0.03)  # ~30 fps
     finally:
         cap.release()
         await websocket.close()
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
