@@ -18,7 +18,6 @@ const EyeTracker: React.FC = () => {
   const [jerkiness, setJerkiness] = useState<number | null>(null);
   const [passFail, setPassFail] = useState<string | null>(null);
 
-
   // Detect front vs back camera
   const [isFrontCamera, setIsFrontCamera] = useState(true);
 
@@ -29,6 +28,7 @@ const EyeTracker: React.FC = () => {
 
       try {
         let stream: MediaStream;
+
         try {
           // Try back camera first
           stream = await navigator.mediaDevices.getUserMedia({
@@ -39,16 +39,21 @@ const EyeTracker: React.FC = () => {
             },
           });
           setIsFrontCamera(false); // Using back camera
-        } catch (err) {
+        } catch {
           // Fallback to front camera
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480, facingMode: "user" },
+            video: {
+              width: 640,
+              height: 480,
+              facingMode: "user",
+            },
           });
           setIsFrontCamera(true); // Using front camera
         }
 
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+
         console.log(`✅ Camera started (${isFrontCamera ? "front" : "back"})`);
       } catch (err: any) {
         console.error("❌ Camera error:", err.name, err.message);
@@ -79,6 +84,7 @@ const EyeTracker: React.FC = () => {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
+
       setEyeData({
         leftIris: data.leftIris,
         rightIris: data.rightIris,
@@ -112,6 +118,7 @@ const EyeTracker: React.FC = () => {
         velocities.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
         velocities.length;
       const stdDev = Math.sqrt(variance);
+
       const spikes = velocities.map((v, i, arr) =>
         i > 0 ? Math.abs(v - arr[i - 1]) : 0
       );
@@ -119,6 +126,7 @@ const EyeTracker: React.FC = () => {
 
       setSmoothness(stdDev);
       setJerkiness(maxSpike);
+      console.log(`Smoothness: ${stdDev.toFixed(4)}, Jerkiness: ${maxSpike.toFixed(4)}`);
     }
   }, [history]);
 
@@ -137,6 +145,7 @@ const EyeTracker: React.FC = () => {
   // --- Drawing loop ---
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current) return;
+
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -188,30 +197,33 @@ const EyeTracker: React.FC = () => {
     setHistory([]);
     setSmoothness(null);
     setJerkiness(null);
+    setPassFail(null);
   };
 
-  // Navigate when timer ends
+  // --- Pass/Fail Logic ---
   useEffect(() => {
-  if (timeLeft === 0 && testStarted) {
-    // Example thresholds: adjust based on testing/experiments
-    const smoothnessThreshold = 0.02; // lower is smoother
-    const jerkinessThreshold = 0.05;  // lower is less jerky
+    if (timeLeft === 0 && testStarted) {
+      const smoothnessThreshold = 0.1; // lower = smoother
+      const jerkinessThreshold = 0.2; // lower = less jerky
 
-    if (
-      smoothness !== null &&
-      jerkiness !== null &&
-      smoothness < smoothnessThreshold &&
-      jerkiness < jerkinessThreshold
-    ) {
-      setPassFail("✅ Eye Test Passed");
-    } else {
-      setPassFail("❌ Eye Test Failed");
+      if (
+        smoothness !== null &&
+        jerkiness !== null
+      ) {
+        if (smoothness < smoothnessThreshold &&
+        jerkiness < jerkinessThreshold){
+          setPassFail("✅ Eye Test Passed");
+        } else {
+          setPassFail("❌ Eye Test Failed");
+        }
+      }
+      else {
+        setPassFail("❌ Eye Test Failed(insufficient data)");
+      }
+
+      setTimeout(() => router.push("/walk-and-turn"), 5000);
     }
-
-    // Navigate to next test after short delay (optional)
-    setTimeout(() => router.push("/walk-and-turn"), 5000);
-  }
-}, [timeLeft, testStarted, smoothness, jerkiness, router]);
+  }, [timeLeft, testStarted, smoothness, jerkiness, router]);
 
   return (
     <div className="flex flex-col items-center py-12">
@@ -233,7 +245,6 @@ const EyeTracker: React.FC = () => {
           muted
           className="hidden"
         />
-
         <canvas
           ref={canvasRef}
           width={640}
@@ -255,11 +266,14 @@ const EyeTracker: React.FC = () => {
         </div>
 
         <div className="mt-4 text-center text-white">
-          {smoothness !== null && <p>Smoothness: {smoothness.toFixed(4)}</p>}
+          {smoothness !== null && (
+            <p>Smoothness: {smoothness.toFixed(4)}</p>
+          )}
           {jerkiness !== null && <p>Jerkiness: {jerkiness.toFixed(4)}</p>}
-          {passFail && <h2 className="text-2xl font-bold mt-4">{passFail}</h2>}
+          {passFail && (
+            <h2 className="text-2xl font-bold mt-4">{passFail}</h2>
+          )}
         </div>
-
       </div>
     </div>
   );
