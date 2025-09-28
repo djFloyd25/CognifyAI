@@ -4,8 +4,7 @@ import Hero from "../components/Hero";
 
 export default function Page() {
   return (
-    <main className="bg-gray-900 min-h-screen">
-      <Navbar />
+    <main className="bg-gray-900 h-screen justify-center overflow-hidden">
       <Hero />
       {/* You can add Features, Footer, etc. below */}
     </main>
