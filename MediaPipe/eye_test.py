@@ -1,42 +1,41 @@
-import time
+import asyncio
 
 import cv2
-import mediapipe as mp
-from jerk import EyeTracker
+import uvicorn
+from eye_test import process_frame
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
-# Init Mediapipe + EyeTracker
-face_mesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
-tracker = EyeTracker(test_duration=15)
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-def init_camera():
-    return cv2.VideoCapture(0)
+@app.websocket("/ws/eye")
+async def websocket_eye(websocket: WebSocket):
+    await websocket.accept()
+    cap = cv2.VideoCapture(0)
+
+    try:
+        while True:
+            success, frame = cap.read()
+            if not success:
+                break
+
+            payload = process_frame(frame)
+            await websocket.send_json(payload)
+
+            await asyncio.sleep(0.03)  # ~30 fps
+    finally:
+        cap.release()
+        await websocket.close()
 
 
-def process_frame(frame):
-    frame = cv2.flip(frame, 1)
-    h, w, _ = frame.shape
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = face_mesh.process(rgb)
-
-    if results.multi_face_landmarks:
-        lm = results.multi_face_landmarks[0].landmark
-        iris_x = int(lm[468].x * w)  # left iris
-        nose_x = int(lm[1].x * w)  # nose tip
-        res = tracker.update(iris_x, nose_x)
-
-        # Build JSON with all fields React expects
-        left_iris_points = [(lm[468].x, lm[468].y)]
-        right_iris_points = [(lm[473].x, lm[473].y)]
-
-        return {
-            "leftIris": left_iris_points,
-            "rightIris": right_iris_points,
-            "targetDot": {"x": 0.5, "y": 0.5},  # dummy target
-            "jerkiness": res["score"],  # reuse score as jerkiness bar
-            "status": res["status"],
-            "isFailing": res["status"].startswith("❌"),
-            "finished": res["finished"],
-        }
-
-    return None
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
