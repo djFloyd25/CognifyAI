@@ -23,7 +23,7 @@ const WalkAndTurn: React.FC = () => {
 
   // Connect WebSocket
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000/ws/walk");
+    const ws = new WebSocket("ws://100.66.12.76:8000/ws/walk");
 
     ws.onopen = () => setIsTracking(true);
     ws.onclose = () => setIsTracking(false);

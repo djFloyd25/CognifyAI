@@ -22,6 +22,7 @@ def main():
 
         status = "Analyzing..."
         alignment, stability = None, None
+        fail_counter = 0
 
         if results.pose_landmarks:
             lm = results.pose_landmarks.landmark
@@ -78,12 +79,16 @@ def main():
             # Simple scoring logic
             if alignment > 0.1:
                 status = "FAIL (not heel-to-toe)"
+                fail_counter += 1
             elif stability > 0.1:
                 status = "FAIL (unstable gait)"
+                fail_counter += 1
             elif left_arm_dist > 0.15 or right_arm_dist > 0.15:
                 status = "FAIL (arms used for balance)"
+                fail_counter += 1
             elif abs(left_ankle[0] - right_ankle[0]) > 0.25 or shoulder_angle > 0.15:
                 status = "FAIL (lost balance while turning)"
+                fail_counter += 1
             else:
                 status = "PASS"
 
@@ -93,9 +98,11 @@ def main():
 
             if hip_center_y > 0.9 or shoulder_center_y > 0.9:
                 status = "FAIL (possible fall detected)"
+                fail_counter += 1
 
             elif hip_tilt > 0.2 or shoulder_angle > 0.25:
                 status = "FAIL (stumbled / heavy lean)"
+                fail_counter += 1
 
         # Draw pose skeleton
         mp_drawing.draw_landmarks(
