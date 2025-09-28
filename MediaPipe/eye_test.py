@@ -1,41 +1,50 @@
-import asyncio
-
 import cv2
-import uvicorn
-from eye_test import process_frame
-from fastapi import FastAPI, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
+import mediapipe as mp
+from jerk import EyeTracker
 
-app = FastAPI()
+face_mesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
+tracker = EyeTracker(test_duration=15)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+last_left_iris = None
+last_right_iris = None
 
 
-@app.websocket("/ws/eye")
-async def websocket_eye(websocket: WebSocket):
-    await websocket.accept()
-    cap = cv2.VideoCapture(0)
+def process_frame(frame):
+    global last_left_iris, last_right_iris
 
-    try:
-        while True:
-            success, frame = cap.read()
-            if not success:
-                break
+    frame = cv2.flip(frame, 1)
+    h, w, _ = frame.shape
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = face_mesh.process(rgb)
 
-            payload = process_frame(frame)
-            await websocket.send_json(payload)
+    if results.multi_face_landmarks:
+        lm = results.multi_face_landmarks[0].landmark
+        iris_x = int(lm[468].x * w)
+        nose_x = int(lm[1].x * w)
+        res = tracker.update(iris_x, nose_x, frame_width=w)
 
-            await asyncio.sleep(0.03)  # ~30 fps
-    finally:
-        cap.release()
-        await websocket.close()
+        left_iris_points = [(lm[468].x, lm[468].y)]
+        right_iris_points = [(lm[473].x, lm[473].y)]
 
+        # remember last good values
+        last_left_iris = left_iris_points
+        last_right_iris = right_iris_points
 
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+        return {
+            "leftIris": left_iris_points,
+            "rightIris": right_iris_points,
+            "jerkiness": res["score"],
+            "status": res["status"],
+            "isFailing": res["status"].startswith("❌"),
+            "finished": res["finished"],
+        }
+
+    # fallback → reuse last known iris if detection fails
+    return {
+        "leftIris": last_left_iris if last_left_iris else [],
+        "rightIris": last_right_iris if last_right_iris else [],
+        "jerkiness": 0,
+        "status": "Analyzing...",
+        "isFailing": False,
+        "finished": False,
+    }
