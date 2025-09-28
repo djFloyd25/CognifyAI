@@ -8,12 +8,12 @@ class EyeTracker:
         self,
         window_size=150,
         jerkiness_factor=2.0,
-        displacement_threshold=50,
+        displacement_ratio=0.25,  # allow 25% of frame width movement
         test_duration=15,
     ):
         self.window_size = window_size
         self.jerkiness_factor = jerkiness_factor
-        self.displacement_threshold = displacement_threshold
+        self.displacement_ratio = displacement_ratio
         self.test_duration = test_duration
 
         self.iris_positions = []
@@ -24,6 +24,7 @@ class EyeTracker:
         self.status = "Starting..."
         self.color = (255, 255, 255)
         self.finished = False
+        self.frame_width = None  # store frame width to scale head movement
 
     def start(self):
         """Begin a new test"""
@@ -35,10 +36,13 @@ class EyeTracker:
         self.status = "Analyzing..."
         self.finished = False
 
-    def update(self, iris_x, nose_x):
+    def update(self, iris_x, nose_x, frame_width=None):
         """Update tracker with new iris/nose position per frame"""
         if self.start_time is None:
             self.start()
+
+        if frame_width:
+            self.frame_width = frame_width
 
         current_time = time.time()
         elapsed = current_time - self.start_time
@@ -64,8 +68,13 @@ class EyeTracker:
 
             self.score = max(0, 100 - jerkiness * self.jerkiness_factor - jerks * 5)
 
-            # Head movement check
-            if abs(nose_x - self.nose_baseline) > self.displacement_threshold:
+            # Head movement check (relative to frame width if known)
+            if self.frame_width:
+                allowed_shift = self.frame_width * self.displacement_ratio
+            else:
+                allowed_shift = 120  # fallback default
+
+            if abs(nose_x - self.nose_baseline) > allowed_shift:
                 self.status = "❌ INVALID TEST (Move eyes only)"
                 self.color = (0, 0, 255)
                 self.score = 0
